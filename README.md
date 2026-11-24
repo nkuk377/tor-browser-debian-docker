@@ -60,14 +60,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /home/torbrowser
 
-RUN LATEST_VERSION=$(curl -sSL https://www.torproject.org/dist/torbrowser/ | \
-    grep -oP 'href="([0-9]+\.[0-9]+\.[0-9]+)/"' | \
-    grep -oP '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n 1) && \
-    echo "Latest Tor Browser version: $LATEST_VERSION" && \
-    curl -sSL -o /home/torbrowser/tor.tar.xz \
-      https://www.torproject.org/dist/torbrowser/${LATEST_VERSION}/tor-browser-linux-x86_64-${LATEST_VERSION}.tar.xz && \
-    tar xJf /home/torbrowser/tor.tar.xz && \
-    rm -f /home/torbrowser/tor.tar.xz
+RUN set -eu; \
+    BASE_URL="https://dist.torproject.org/torbrowser"; \
+    DOWNLOAD_DIR="/home/torbrowser"; \
+    ARCHIVE=""; \
+    LATEST_VERSION=""; \
+    \
+    VERSIONS=$(curl -fsSL "$BASE_URL/" | \
+        grep -oP 'href="\K[0-9]+\.[0-9]+\.[0-9]+(?=/")' | \
+        sort -Vr); \
+    \
+    for VERSION in $VERSIONS; do \
+        URL="${BASE_URL}/${VERSION}/tor-browser-linux-x86_64-${VERSION}.tar.xz"; \
+        \
+        echo "Checking Tor Browser Linux version ${VERSION}..."; \
+        \
+        if curl -fsSLI --max-time 20 "$URL" -o /dev/null; then \
+            LATEST_VERSION="$VERSION"; \
+            ARCHIVE="$URL"; \
+            echo "Found Linux release: ${LATEST_VERSION}"; \
+            break; \
+        fi; \
+    done; \
+    \
+    if [ -z "$LATEST_VERSION" ]; then \
+        echo "ERROR: No valid Linux release found!" >&2; \
+        exit 1; \
+    fi; \
+    \
+    echo "Downloading Tor Browser ${LATEST_VERSION}..."; \
+    curl -fSL --retry 3 -o "${DOWNLOAD_DIR}/tor.tar.xz.tmp" "$ARCHIVE"; \
+    mv "${DOWNLOAD_DIR}/tor.tar.xz.tmp" "${DOWNLOAD_DIR}/tor.tar.xz"; \
+    tar xJf "${DOWNLOAD_DIR}/tor.tar.xz"; \
+    rm -f "${DOWNLOAD_DIR}/tor.tar.xz"
 
 RUN useradd -ms /bin/bash torbrowser
 RUN chown -R torbrowser:torbrowser /home/torbrowser
